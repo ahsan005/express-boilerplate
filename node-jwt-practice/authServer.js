@@ -1,6 +1,7 @@
 require("dotenv").config();
 //this will allow us to pull params from .env file
 const express = require('express');
+const db = require('./db');
 const app = express();
 
 app.use(express.json());
@@ -13,15 +14,28 @@ app.listen(port,()=>{
     console.log('Authorization server is running on port: ', port);
 })
 
+
+
 const bcrypt = require ('bcrypt')
 const users = []
 // REGISTER A USER
 app.post ("/createUser", async (req,res) => {
-const user = req.body.name
+const user = req.body.name;
+const email = req.body.email;
 const hashedPassword = await bcrypt.hash(req.body.password, 10)
-users.push ({user: user, password: hashedPassword})
-res.status(201).send(users)
-console.log(users)
+    try{
+   let result = await db.query("INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING *", [user,email, hashedPassword]);
+        console.log(result)
+    return res.status(201).send(`User added with ID: ${result.rows[0].id}`)
+        }
+    
+    catch(error){
+        console.log(error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+
+// users.push ({user: user, password: hashedPassword})
+// console.log(users)
 })
 // REGISTER A USER
 
@@ -32,11 +46,12 @@ const jwt = require("jsonwebtoken")
 //AUTHENTICATE LOGIN AND RETURN JWT TOKEN
 app.post("/login", async (req,res) => {
     console.log(req.body)
-const user = users.find( (c) => c.user == req.body.name)
+const user = await db.query("SELECT * FROM users WHERE name = $1", [req.body.name])
 //check to see if the user exists in the list of registered users
+console.log(user,"USER")
 if (user == null) res.status(404).send ("User does not exist!")
 //if user does not exist, send a 400 response
-if (await bcrypt.compare(req.body.password, user.password)) {
+if (await bcrypt.compare(req.body.password, user.rows[0].password)) {
 const accessToken = generateAccessToken ({user: req.body.name})
 const refreshToken = generateRefreshToken ({user: req.body.name})
 res.json ({accessToken: accessToken, refreshToken: refreshToken})
@@ -45,10 +60,15 @@ else {
 res.status(401).send("Password Incorrect!")
 }
 })
+app.get("/users", async (req,res) => {
+    console.log(req.body)
+const user = await db.query("SELECT * FROM users")
+return res.json(user.rows);
+})
 
 
 // accessTokens
-function generateAccessToken(user) {
+    function generateAccessToken(user) {
     return jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: "15m"}) 
     }
 
